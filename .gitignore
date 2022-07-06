@@ -1,0 +1,7 @@
+# Access lock file for dbLib sources
+*/Debug/*
+*.atsln
+*.vs
+*.xml
+
+
