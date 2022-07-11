@@ -23,9 +23,9 @@
 #define OPCODE_REPEAT 0x05
 #define OPCODE_KEY 0x07
 
-#define BYTE_SIZE 0x01
-#define WORD_SIZE 0x02
-#define TRIBYTES_SIZE 0x03
+#define BYTE_SIZE 0x00
+#define WORD_SIZE 0x01
+#define TRIBYTES_SIZE 0x02
 #define ADR_SIZE_POS 2
 #define DATA_SIZE_POS 0
 #define REG_POS 0
@@ -65,13 +65,14 @@ uint8_t UPDI_UartReadBytes(uint8_t* adr, uint8_t len);
 
 uint8_t UPDI_LD(uint8_t* data, uint8_t access, uint8_t size);
 uint8_t UPDI_SD(uint8_t* data, uint8_t access, uint8_t size);
-uint8_t UPDI_SDS(uint8_t* adr, uint8_t* data, uint8_t adr_size, uint8_t data_size);
+uint8_t UPDI_SDS(uint16_t adr, uint8_t* data, uint8_t adr_size, uint8_t data_size);
 uint8_t UPDI_LDS(uint16_t adr, uint8_t* data, uint8_t adr_size, uint8_t data_size);
 uint8_t UPDI_LDCS(uint8_t reg, uint8_t* data);
 uint8_t UPDI_SDCS(uint8_t reg, uint8_t data);
 uint8_t UPDI_Repeat(uint8_t size);
 uint8_t UPDI_WriteKey(uint64_t key);
-
+uint8_t NVMPROG_CTRLA(uint8_t cmd);
+uint8_t NVMPROG_GETSTATUS(void);
 
 uint8_t UPDI_Reset(void);
 uint8_t UPDI_WaitForAck(void);
@@ -108,12 +109,12 @@ uint8_t UPDI_SD(uint8_t* data, uint8_t access, uint8_t size){
 	return UPDI_UartWriteBytes(data, size+1);
 }
 
-uint8_t UPDI_SDS(uint8_t* adr, uint8_t* data, uint8_t adr_size, uint8_t data_size){
+uint8_t UPDI_SDS(uint16_t adr, uint8_t* data, uint8_t adr_size, uint8_t data_size){
 	uint8_t sts = OPCODE_SDS<<OPCODE_POS | WORD_SIZE<<ADR_SIZE_POS | BYTE_SIZE<<DATA_SIZE_POS;
 	uint8_t status = 0;
 	UPDI_UartWriteByte(SYNCH);
 	UPDI_UartWriteByte(sts);
-	UPDI_UartWriteBytes(adr,adr_size+1);
+	UPDI_UartWriteBytes((uint8_t*)&adr,adr_size+1);
 	status = UPDI_WaitForAck();
 	if(status != OK) return status;
 	UPDI_UartWriteBytes(data,data_size+1);
@@ -127,7 +128,7 @@ uint8_t UPDI_LDS(uint16_t adr, uint8_t* data, uint8_t adr_size, uint8_t data_siz
 	UPDI_UartWriteByte(SYNCH);
 	UPDI_UartWriteByte(lds);
 	UPDI_UartWriteBytes((uint8_t*)&adr,adr_size+1);
-	return UPDI_UartReadBytes(data, data_size);
+	return UPDI_UartReadBytes(data, data_size+1);
 }
 
 uint8_t UPDI_LDCS(uint8_t reg, uint8_t* data){
@@ -193,7 +194,35 @@ uint8_t UPDI_Reset(void){
 	UPDI_SDCS(ASI_RESET_REQ,0);
 }
 
-uint8_t UPDI_NVMProg(void){
+uint8_t UPDI_WriteData(uint16_t adr, uint16_t len, uint8_t *data){
+	uint8_t blocks = len/255;
+	uint8_t complement = len%255;
+	uint8_t buf[255];
+	uint8_t status = 0;
+	if(UPDI_StartProg() != OK) return ERR;
+	NVMPROG_CTRLA(0x04);
+	if(UPDI_WriteBlock(adr,complement,data) != OK)return ERR;\
+	NVMPROG_CTRLA(0x01);
+	NVMPROG_GETSTATUS();
+	UPDI_ReadBlock(adr,complement,buf);
+	UPDI_Reset();
+}
+
+uint8_t NVMPROG_CTRLA(uint8_t cmd){
+	UPDI_SDS(0x1000,&cmd,1,0);
+}
+
+uint8_t NVMPROG_GETSTATUS(void){
+	uint8_t status = 0;
+	for(uint8_t i=0;i<10;i++){
+		UPDI_LDS(0x1002,&status,1,0);
+		if(!(status & (1<<0))) break;
+		UPDI_DelayUs(100);
+	}
+}
+
+
+uint8_t UPDI_StartProg(void){
 	uint16_t buf = 0;
 	UPDI_WriteKey(KEY_NVMPROG);
 	UPDI_LDCS(ASI_KEY_STATUS,&buf);
@@ -204,18 +233,31 @@ uint8_t UPDI_NVMProg(void){
 		if(buf&(1<<NVMPROG_BIT)) break;
 		UPDI_DelayUs(100);
 	}
+	return OK;
+}
 
-	buf = 0;
-	UPDI_SD(&buf,2,1);
-	UPDI_WaitForAck();
-	UPDI_Repeat(255);
-	buf = 0xFF;
-	//UPDI_SD(&buf,1,0);
-	//UPDI_WaitForAck();
-	/*for(uint8_t i = 0;i<255;i++){
-	UPDI_UartWriteByte(buf);
-	UPDI_WaitForAck();
-	}*/
+uint8_t UPDI_WriteBlock(uint16_t adr, uint8_t len, uint8_t *data){
+	UPDI_SD((uint8_t*)&adr,2,1);
+	if(UPDI_WaitForAck() != OK)return ERR;
+	len = len-1;
+	UPDI_Repeat(len);
+	UPDI_SD(data,1,0);
+	if(UPDI_WaitForAck() != OK)return ERR;
+	for(uint8_t i = 1;i<len+1;i++){
+		UPDI_UartWriteByte(*(data+i));
+		if(UPDI_WaitForAck() != OK)return ERR;
+	}
+	return OK;
+}
+
+uint8_t UPDI_ReadBlock(uint16_t adr, uint8_t len, uint8_t *data){
+	UPDI_SD((uint8_t*)&adr,2,1);
+	if(UPDI_WaitForAck() != OK)return ERR;
+	len = len-1;
+	UPDI_Repeat(len);
+	UPDI_LD(data,1,BYTE_SIZE);
+	UPDI_UartReadBytes(data+1, len-1);
+	return OK;
 }
 
 uint8_t UPDI_ReadSib(uint8_t* sib){

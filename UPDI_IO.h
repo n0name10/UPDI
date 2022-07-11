@@ -101,7 +101,7 @@ uint8_t inline __attribute__((always_inline)) UPDI_UartReadByte(uint8_t *data){
 	 UCSR1B |= (1<<RXEN1);
 	while (!(UCSR1A & (1<<RXC1))){
 		tim++;
-		if(tim >= 30) return 1;
+		if(tim >= 60) return 1;
 		UPDI_DelayUs(100);
 	}
 	*data = UDR1;
