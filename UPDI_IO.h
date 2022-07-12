@@ -96,15 +96,18 @@ void __attribute__((optimize("O0"))) __attribute__((always_inline)) inline UPDI_
 	}
 }
 
-uint8_t inline __attribute__((always_inline)) UPDI_UartReadByte(uint8_t *data){
+uint8_t inline __attribute__((always_inline)) UPDI_UartReadBytes(uint8_t *data, uint16_t len){
 	uint16_t tim = 0;
-	 UCSR1B |= (1<<RXEN1);
-	while (!(UCSR1A & (1<<RXC1))){
-		tim++;
-		if(tim >= 60) return 1;
-		UPDI_DelayUs(100);
+	UCSR1B |= (1<<RXEN1);
+	for(uint16_t i = 0;i<len;i++){
+		tim = 0;
+		while (!(UCSR1A & (1<<RXC1))){
+			tim++;
+			if(tim >= 60) return 1;
+			UPDI_DelayUs(100);
+		}
+		*(data+i) = UDR1;
 	}
-	*data = UDR1;
 	UCSR1B &= ~(1<<RXEN1);
 	return 0;
 }
