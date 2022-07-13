@@ -12,5 +12,5 @@ uint8_t UPDI_WriteBlock(uint16_t adr, uint8_t len, uint8_t *data);
 uint8_t UPDI_ReadBlock(uint16_t adr, uint8_t len, uint8_t *data);
 uint8_t UPDI_StartProg(void);
 uint8_t UPDI_ReadSib(uint8_t* sib);
-
+void UPDI_ByteRx_Handler(uint8_t rx_data);
 #endif 

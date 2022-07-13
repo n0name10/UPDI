@@ -10,6 +10,7 @@
 #define UPDI_IO_H_
 #include <stdio.h>
 #include <avr/io.h>
+#include <avr/interrupt.h>
 
 #define SET_C2CK PORTB |= (1<<1)
 #define RESET_C2CK PORTB &= ~(1<<1)
@@ -67,14 +68,14 @@ void inline __attribute__((always_inline)) UPDI_UartInit(uint8_t baud){
 	
 	UCSR1A |= (1<< U2X1);
 	UCSR1C |= (1<<USBS1)|(3<<UCSZ1) | (1<<UPM11);
-	UCSR1B |= (1<<TXEN1);
+	UCSR1B |= (1<<RXEN1)|(1<<TXEN1)|(1<<RXCIE1);
+	sei();
 }
 
 void inline __attribute__((always_inline)) UPDI_UartDeinit(void){
 	DDRD &= ~(1 << PD2);
 	DDRD &= ~(1 << PD3);
 	PORTD &= ~(1<<PD3);
-
 	UCSR1B = 0;
 }
 
@@ -96,21 +97,6 @@ void __attribute__((optimize("O0"))) __attribute__((always_inline)) inline UPDI_
 	}
 }
 
-uint8_t inline __attribute__((always_inline)) UPDI_UartReadBytes(uint8_t *data, uint16_t len){
-	uint16_t tim = 0;
-	UCSR1B |= (1<<RXEN1);
-	for(uint16_t i = 0;i<len;i++){
-		tim = 0;
-		while (!(UCSR1A & (1<<RXC1))){
-			tim++;
-			if(tim >= 60) return 1;
-			UPDI_DelayUs(100);
-		}
-		*(data+i) = UDR1;
-	}
-	UCSR1B &= ~(1<<RXEN1);
-	return 0;
-}
 
 
 #endif /* IO_H_ */

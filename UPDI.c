@@ -71,6 +71,7 @@ uint8_t UPDI_Repeat(uint8_t size);
 uint8_t UPDI_WriteKey(uint64_t key);
 uint8_t UPDI_WriteBlockAndCheck(uint16_t adr, uint8_t len, uint8_t *data);
 uint8_t UPDI_DataIsEqual(uint8_t* data1,uint8_t* data2, uint16_t len);
+uint8_t UPDI_UartReadBytes(uint8_t *data, uint16_t len);
 
 uint8_t NVMPROG_WriteCtrla(uint8_t cmd);
 uint8_t NVMPROG_WaitFlashBusy(void);
@@ -102,13 +103,13 @@ uint8_t UPDI_LD(uint8_t* data, uint8_t access, uint8_t size){
 	uint8_t ld = OPCODE_LD<<OPCODE_POS | access<<PTR_ACCESS_POS | size<<SIZE_POS;
 	UPDI_UartWriteByte(SYNCH);
 	UPDI_UartWriteByte(ld);
-	return UPDI_UartReadBytes(data, size+1);
+	return OK;
 }
 uint8_t UPDI_SD(uint8_t* data, uint8_t access, uint8_t size){
 	uint8_t ld = OPCODE_SD<<OPCODE_POS | access<<PTR_ACCESS_POS | size<<SIZE_POS;
 	UPDI_UartWriteByte(SYNCH);
 	UPDI_UartWriteByte(ld);
-	return UPDI_UartWriteBytes(data, size+1);
+	return OK;
 }
 
 uint8_t UPDI_SDS(uint16_t adr, uint8_t* data, uint8_t adr_size, uint8_t data_size){
@@ -247,11 +248,11 @@ uint8_t UPDI_WriteBlock(uint16_t adr, uint8_t len, uint8_t *data){
 	NVMPROG_WriteCtrla(0x04);
 	NVMPROG_WaitFlashBusy();
 	UPDI_SD((uint8_t*)&adr,2,1);
+	UPDI_UartWriteBytes((uint8_t*)&adr,2);
 	if(UPDI_WaitForAck() != OK)return ERR;
 	UPDI_Repeat(len-1);
 	UPDI_SD(data,1,0);
-	if(UPDI_WaitForAck() != OK)return ERR;
-	for(uint8_t i = 1;i<len;i++){
+	for(uint8_t i = 0;i<len;i++){
 		UPDI_UartWriteByte(*(data+i));
 		if(UPDI_WaitForAck() != OK)return ERR;
 	}
@@ -268,8 +269,8 @@ uint8_t UPDI_WriteBlockAndCheck(uint16_t adr, uint8_t len, uint8_t *data){
 	if(status != OK) return status;
 	status = UPDI_ReadBlock(adr,len,buf);
 	if(status != OK) return status;
-	//status = UPDI_DataIsEqual(data,buf,len);
-	//if(status != OK) return status;
+	status = UPDI_DataIsEqual(data,buf,len);
+	if(status != OK) return status;
 	return OK;
 }
 
@@ -282,10 +283,11 @@ uint8_t UPDI_DataIsEqual(uint8_t* data1,uint8_t* data2, uint16_t len){
 
 uint8_t UPDI_ReadBlock(uint16_t adr, uint8_t len, uint8_t *data){
 	UPDI_SD((uint8_t*)&adr,2,1);
+	UPDI_UartWriteBytes((uint8_t*)&adr,2);
 	if(UPDI_WaitForAck() != OK)return ERR;
 	UPDI_Repeat(len-1);
 	UPDI_LD(data,1,0);
-	UPDI_UartReadBytes(data+1, len);
+	UPDI_UartReadBytes(data, len);
 	return OK;
 }
 
@@ -311,4 +313,29 @@ uint8_t UPDI_IsSet(uint16_t tim){
 		UPDI_DelayUs(1);
 	}
 	return ERR;
+}
+
+volatile uint16_t len_rx = 0, flag_rx = 0,rx_counter = 0;
+volatile uint8_t* rx_data_wsk;
+
+uint8_t UPDI_UartReadBytes(uint8_t *data, uint16_t len){
+	len_rx = len;
+	rx_data_wsk = data;
+	rx_counter = 0;
+	flag_rx = 1;
+	for(uint16_t i = 0;i<2000;i++){
+		if(flag_rx == 0) return OK;
+		UPDI_DelayUs(10);
+	}
+	flag_rx = 0;
+	return ERR;
+}
+
+void UPDI_ByteRx_Handler(uint8_t rx_data){
+	if(flag_rx){
+		rx_data_wsk[rx_counter++] = rx_data;
+		if(rx_counter == len_rx){
+			flag_rx = 0;
+		}
+	}else rx_counter = 0;
 }
